@@ -329,20 +329,42 @@ struct _async_cancellation_token {
 #define ASYNC_CHANNEL_FLAG_CLOSED 1
 
 struct _async_channel {
+	/* PHP object handle. */
 	zend_object std;
+	
+	/* Channel flags. */
 	uint8_t flags;
+	
+	/* reference to the task scheduler. */
 	async_task_scheduler *scheduler;
+	
+	/* Error object that has been passed as close reason. */
 	zval error;
+	
+	/* Shutdown callback registered with the scheduler. */
 	async_cancel_cb cancel;
+	
+	/* Pending send operations. */
 	async_op_queue senders;
+	
+	/* Pending receive operations. */
 	async_op_queue receivers;
+	
+	/* Maximum channel buffer size. */
 	uint32_t size;
+	
+	/* Current channel buffer size. */
 	uint32_t buffered;
+	
+	/* Queue of buffered messages. */
 	async_channel_buffer_queue buffer;
 };
 
 struct _async_channel_buffer {
+	/* The value to be sent. */
 	zval value;
+	
+	/* References to previous and next buffer value. */
 	async_channel_buffer *prev;
 	async_channel_buffer *next;
 };
@@ -350,10 +372,19 @@ struct _async_channel_buffer {
 #define ASYNC_CHANNEL_ITERATOR_FLAG_FETCHING 1
 
 struct _async_channel_iterator {
+	/* PHP object handle. */
 	zend_object std;
+	
+	/* Iterator flags. */
 	uint8_t flags;
+	
+	/* Reference to the channel being iterated. */
 	async_channel *channel;
+	
+	/* Current key (ascending counter). */
 	zend_long pos;
+	
+	/* Current entry. */
 	zval entry;
 };
 
