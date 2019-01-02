@@ -192,6 +192,7 @@ typedef struct _async_cancel_cb                     async_cancel_cb;
 typedef struct _async_cancellation_handler          async_cancellation_handler;
 typedef struct _async_cancellation_token            async_cancellation_token;
 typedef struct _async_channel                       async_channel;
+typedef struct _async_channel_buffer                async_channel_buffer;
 typedef struct _async_channel_iterator              async_channel_iterator;
 typedef struct _async_context                       async_context;
 typedef struct _async_context_var                   async_context_var;
@@ -210,6 +211,11 @@ typedef struct {
 	async_cancel_cb *first;
 	async_cancel_cb *last;
 } async_cancel_queue;
+
+typedef struct {
+	async_channel_buffer *first;
+	async_channel_buffer *last;
+} async_channel_buffer_queue;
 
 typedef struct {
 	async_op *first;
@@ -326,11 +332,19 @@ struct _async_channel {
 	zend_object std;
 	uint8_t flags;
 	async_task_scheduler *scheduler;
-	zend_long size;
 	zval error;
 	async_cancel_cb cancel;
 	async_op_queue senders;
 	async_op_queue receivers;
+	uint32_t size;
+	uint32_t buffered;
+	async_channel_buffer_queue buffer;
+};
+
+struct _async_channel_buffer {
+	zval value;
+	async_channel_buffer *prev;
+	async_channel_buffer *next;
 };
 
 #define ASYNC_CHANNEL_ITERATOR_FLAG_FETCHING 1

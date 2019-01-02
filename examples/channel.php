@@ -2,10 +2,16 @@
 
 namespace Concurrent;
 
-$work = function ($label, iterable $it) {
+$work = function (string $label, int $delay, iterable $it) {
+    $timer = new Timer($delay);
+    
     try {
+        $timer->awaitTimeout();
+        
         foreach ($it as $v) {
             printf("%s -> %s\n", $label, $v);
+            
+            $timer->awaitTimeout();
         }
     } catch (ChannelClosedException $e) {
         printf("[%s] %s\n", get_class($e), $e->getMessage());
@@ -15,16 +21,14 @@ $work = function ($label, iterable $it) {
     }
 };
 
-$channel = new Channel();
+$channel = new Channel((int) ($_SERVER['argv'][1] ?? 0));
 
-Task::async($work, 'A', $channel);
-Task::async($work, 'B', $channel->getIterator());
-
-$timer = new Timer(20);
+Task::async($work, 'A', 50, $channel);
+Task::async($work, 'B', 140, $channel->getIterator());
 
 for ($i = 0; $i <= 20; $i++) {
-    $timer->awaitTimeout();
-    $channel->send($i);
+    printf("C <- %u\n", $i);
+    $channel->send($i);    
 }
 
 $channel->close();
