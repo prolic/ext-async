@@ -114,6 +114,9 @@ ASYNC_API extern zend_bool async_cli;
 ASYNC_API extern char async_ssl_config_file[MAXPATHLEN];
 
 ASYNC_API extern zend_class_entry *async_awaitable_ce;
+ASYNC_API extern zend_class_entry *async_channel_ce;
+ASYNC_API extern zend_class_entry *async_channel_closed_exception_ce;
+ASYNC_API extern zend_class_entry *async_channel_iterator_ce;
 ASYNC_API extern zend_class_entry *async_context_ce;
 ASYNC_API extern zend_class_entry *async_context_var_ce;
 ASYNC_API extern zend_class_entry *async_deferred_ce;
@@ -145,6 +148,7 @@ ASYNC_API extern zend_class_entry *async_writable_stream_ce;
 
 
 void async_awaitable_ce_register();
+void async_channel_ce_register();
 void async_context_ce_register();
 void async_deferred_ce_register();
 void async_dns_ce_register();
@@ -187,6 +191,8 @@ void async_task_scheduler_shutdown();
 typedef struct _async_cancel_cb                     async_cancel_cb;
 typedef struct _async_cancellation_handler          async_cancellation_handler;
 typedef struct _async_cancellation_token            async_cancellation_token;
+typedef struct _async_channel                       async_channel;
+typedef struct _async_channel_iterator              async_channel_iterator;
 typedef struct _async_context                       async_context;
 typedef struct _async_context_var                   async_context_var;
 typedef struct _async_deferred                      async_deferred;
@@ -312,6 +318,29 @@ struct _async_cancellation_token {
 
 	/* The context being observed for cancellation. */
 	async_context *context;
+};
+
+#define ASYNC_CHANNEL_FLAG_CLOSED 1
+
+struct _async_channel {
+	zend_object std;
+	uint8_t flags;
+	async_task_scheduler *scheduler;
+	zend_long size;
+	zval error;
+	async_cancel_cb cancel;
+	async_op_queue senders;
+	async_op_queue receivers;
+};
+
+#define ASYNC_CHANNEL_ITERATOR_FLAG_FETCHING 1
+
+struct _async_channel_iterator {
+	zend_object std;
+	uint8_t flags;
+	async_channel *channel;
+	zend_long pos;
+	zval entry;
 };
 
 struct _async_context {
