@@ -32,10 +32,31 @@ static async_channel_iterator *async_channel_iterator_object_create(async_channe
 
 #define ASYNC_CHANNEL_READABLE(channel) (!((channel)->flags & ASYNC_CHANNEL_FLAG_CLOSED) || (channel)->receivers.first != NULL || (channel)->buffer.first != NULL)
 
+#define ASYNC_CHANNEL_SELECT_CLEANUP_ENTRIES(entries, count) do { \
+	int i; \
+	for (i = 0; i < count; i++) { \
+		ASYNC_DELREF(&(entries)[i].it->std); \
+		zval_ptr_dtor(&(entries)[i].key); \
+	} \
+	efree(entries); \
+} while (0)
+
 typedef struct {
 	async_op base;
 	zval* value;
 } async_channel_send_op;
+
+typedef struct {
+	async_op base;
+	uint16_t pending;
+	zval key;
+} async_channel_select_op;
+
+typedef struct {
+	async_op base;
+	async_channel_iterator *it;
+	zval key;
+} async_channel_select_entry;
 
 static inline void forward_error(zval *cause)
 {
@@ -311,18 +332,6 @@ ZEND_METHOD(Channel, send)
 	ASYNC_FREE_OP(send);
 }
 
-typedef struct {
-	async_op base;
-	uint16_t pending;
-	zval key;
-} async_channel_select_op;
-
-typedef struct {
-	async_op base;
-	async_channel_iterator *it;
-	zval key;
-} async_channel_select_entry;
-
 static void continue_select(async_op *op)
 {
 	async_channel_select_entry *entry;
@@ -350,15 +359,6 @@ static void continue_select(async_op *op)
 	ASYNC_RESOLVE_OP(select, &op->result);
 }
 
-#define ASYNC_CHANNEL_SELECT_CLEANUP_ENTRIES(entries, count) do { \
-	int i; \
-	for (i = 0; i < count; i++) { \
-		ASYNC_DELREF(&(entries)[i].it->std); \
-		zval_ptr_dtor(&(entries)[i].key); \
-	} \
-	efree(entries); \
-} while (0)
-
 ZEND_METHOD(Channel, select)
 {
 	async_channel_select_entry *entries;
@@ -375,13 +375,21 @@ ZEND_METHOD(Channel, select)
 
 	HashTable *map;
 	zval tmp;
+	zval *val;
 	zval *entry;
+	
+	block = 1;
 
-	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 1, 2)
+	ZEND_PARSE_PARAMETERS_START_EX(ZEND_PARSE_PARAMS_THROW, 2, 3)
+		Z_PARAM_ZVAL_DEREF(val);
 		Z_PARAM_ARRAY_HT(map)
 		Z_PARAM_OPTIONAL
 		Z_PARAM_LONG(block)
 	ZEND_PARSE_PARAMETERS_END();
+	
+	// Clear out previous ref value and reinitialize with NULL value.
+	zval_ptr_dtor(val);
+	ZVAL_NULL(val);
 	
 	entries = ecalloc(zend_array_count(map), sizeof(async_channel_select_entry));
 	count = 0;
@@ -389,6 +397,7 @@ ZEND_METHOD(Channel, select)
 	// Validate input channels and prepare channel op entries.
 	ZEND_HASH_FOREACH_KEY_VAL(map, h, k, entry) {
 		if (Z_TYPE_P(entry) != IS_OBJECT) {
+			count--;
 			ASYNC_CHANNEL_SELECT_CLEANUP_ENTRIES(entries, count);
 		
 			zend_throw_error(NULL, "Select requires all inputs to be objects");
@@ -408,6 +417,7 @@ ZEND_METHOD(Channel, select)
 			if (!instanceof_function(Z_OBJCE_P(&tmp), async_channel_iterator_ce)) {
 				zval_ptr_dtor(&tmp);
 				
+				count--;
 				ASYNC_CHANNEL_SELECT_CLEANUP_ENTRIES(entries, count);
 			
 				zend_throw_error(NULL, "Aggregated iterator is not a channel iterator");
@@ -444,11 +454,12 @@ ZEND_METHOD(Channel, select)
 	// See if any input channel can provide a value without blocking.
 	for (i = 0; i < count; i++) {
 		if (fetch_noblock(entries[i].it->channel, &tmp) == SUCCESS) {
-			array_init(return_value);
-			add_next_index_zval(return_value, &entries[i].key);
-			add_next_index_zval(return_value, &tmp);
-			
+			ZVAL_COPY(val, &tmp);
 			zval_ptr_dtor(&tmp);
+			
+			if (USED_RET()) {
+				ZVAL_COPY(return_value, &entries[i].key);
+			}
 			
 			ASYNC_CHANNEL_SELECT_CLEANUP_ENTRIES(entries, count);
 			
@@ -461,11 +472,7 @@ ZEND_METHOD(Channel, select)
 	}
 	
 	// Bail out if no blocking select is requested or no input channel is ready for read.
-	if (!block || count == j) {		
-		array_init(return_value);
-		add_next_index_null(return_value);
-		add_next_index_null(return_value);
-		
+	if (!block || count == j) {
 		ASYNC_CHANNEL_SELECT_CLEANUP_ENTRIES(entries, count);
 		
 		return;
@@ -492,14 +499,12 @@ ZEND_METHOD(Channel, select)
 	
 	// Populate result element.
 	if (EXPECTED(EG(exception) == NULL)) {
-		array_init(return_value);
-		
-		if (Z_TYPE_P(&select->key) == IS_UNDEF) {
-			add_next_index_null(return_value);
-			add_next_index_null(return_value);
-		} else {
-			add_next_index_zval(return_value, &select->key);
-			add_next_index_zval(return_value, &select->base.result);
+		if (Z_TYPE_P(&select->key) != IS_UNDEF) {
+			ZVAL_COPY(val, &select->base.result);
+			
+			if (USED_RET()) {
+				ZVAL_COPY(return_value, &select->key);
+			}
 		}
 	}
 	
@@ -535,7 +540,8 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_channel_send, 0, 1, IS_VOID, 0)
 	ZEND_ARG_INFO(0, message)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_channel_select, 0, 1, IS_ARRAY, 0)
+ZEND_BEGIN_ARG_INFO_EX(arginfo_channel_select, 0, 0, 2)
+	ZEND_ARG_INFO(1, value)
 	ZEND_ARG_TYPE_INFO(0, channels, IS_ARRAY, 0)
 	ZEND_ARG_TYPE_INFO(0, block, _IS_BOOL, 0)
 ZEND_END_ARG_INFO()
