@@ -98,11 +98,6 @@ typedef struct {
 } php_socket;
 #endif
 
-ASYNC_API void *async_malloc(size_t size);
-ASYNC_API void *async_realloc(void *ptr, size_t size);
-ASYNC_API void *async_calloc(size_t count, size_t size);
-ASYNC_API void async_free(void *ptr);
-
 #define ASYNC_FIBER_VM_STACK_SIZE 4096
 
 #define ASYNC_OP_PENDING 0

@@ -163,6 +163,8 @@ final class Channel implements \IteratorAggregate
     public function close(?\Throwable $e = null): void { }
     
     public function send($message): void { }
+    
+    public static function select(array $channels, bool $block = true): array { }
 }
 ```
 
