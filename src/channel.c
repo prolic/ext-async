@@ -402,6 +402,8 @@ ZEND_METHOD(ChannelIterator, rewind)
 	
 	if (it->pos < 0 && ASYNC_CHANNEL_READABLE(it->channel)) {
 		fetch_next_entry(it);
+	} else if (Z_TYPE_P(&it->channel->error) != IS_UNDEF) {
+		forward_error(&it->channel->error);
 	}
 }
 
