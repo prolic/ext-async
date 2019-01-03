@@ -102,7 +102,6 @@ static void async_task_fiber_func(async_fiber *fiber)
 {
 	async_task *task;
 
-	zval obj;
 	zval retval;
 	zval tmp;
 
@@ -119,12 +118,8 @@ static void async_task_fiber_func(async_fiber *fiber)
 		if (instanceof_function(Z_OBJCE_P(&retval), async_awaitable_ce) != 0) {
 			tmp = retval;
 			
-			ZVAL_OBJ(&obj, &task->fiber.std);
-			ASYNC_ADDREF(&task->fiber.std);
+			zend_call_method_with_1_params(NULL, async_task_ce, NULL, "await", &retval, &tmp);
 			
-			zend_call_method_with_1_params(&obj, async_task_ce, NULL, "await", &retval, &tmp);
-			
-			zval_ptr_dtor(&obj);
 			zval_ptr_dtor(&tmp);
 		}
 	}
