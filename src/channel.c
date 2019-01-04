@@ -510,6 +510,14 @@ static void continue_select(async_op *op)
 		return;
 	}
 	
+	if (op->status == ASYNC_STATUS_FAILED) {
+		group->select.entry = entry;
+		
+		ASYNC_FAIL_OP(&group->select, &op->result);
+		
+		return;
+	}
+	
 	if (entry->it->channel->flags & ASYNC_CHANNEL_FLAG_CLOSED) {
 		if (group->select.pending == 0) {
 			ASYNC_FINISH_OP(&group->select);
@@ -537,6 +545,7 @@ ZEND_METHOD(ChannelGroup, select)
 	async_channel_group *group;
 	async_channel_select_entry buf;
 	async_channel_select_entry *entry;
+	async_channel_select_entry *first;
 	async_channel *channel;
 	
 	zval *val;
@@ -570,22 +579,19 @@ ZEND_METHOD(ChannelGroup, select)
 		}
 	}
 	
-	for (i = 0; i < group->count; i++) {
+	for (first = NULL, i = 0; i < group->count; i++) {
 		entry = &group->entries[i];
 		channel = entry->it->channel;
 		
-		// Perform a non-blocking select if the channel is ready.
-		if (fetch_noblock(channel, &tmp) == SUCCESS) {
-			if (val != NULL) {
-				ZVAL_COPY(val, &tmp);
+		if (ASYNC_CHANNEL_READABLE_NONBLOCK(channel)) {
+			if (first == NULL) {
+				first = entry;
 			}
 			
-			zval_ptr_dtor(&tmp);
-			
-			RETURN_ZVAL(&entry->key, 1, 0);
+			continue;
 		}
 		
-		// Perform inline compaction of the group.
+		// Perform error forwarding and inline compaction of the group.
 		if (channel->flags & ASYNC_CHANNEL_FLAG_CLOSED) {
 			ASYNC_DELREF(&entry->it->std);
 			zval_ptr_dtor(&entry->key);
@@ -596,9 +602,26 @@ ZEND_METHOD(ChannelGroup, select)
 			
 			group->count--;
 			i--;
+			
+			if (Z_TYPE_P(&channel->error) != IS_UNDEF) {
+				forward_error(&channel->error);
+				return;
+			}
 		}
 	}
 	
+	// Perform a non-blocking select if a channel is ready.
+	if (first != NULL && fetch_noblock(first->it->channel, &tmp) == SUCCESS) {
+		if (val != NULL) {
+			ZVAL_COPY(val, &tmp);
+		}
+		
+		zval_ptr_dtor(&tmp);
+		
+		RETURN_ZVAL(&first->key, 1, 0);
+	}
+	
+	// No more channels left or non-blocking select early return.
 	if (group->count == 0 || group->timeout == 0) {
 		return;
 	}
@@ -626,14 +649,14 @@ ZEND_METHOD(ChannelGroup, select)
 	}
 	
 	if (async_await_op((async_op *) &group->select) == FAILURE) {
-		ASYNC_FORWARD_OP_ERROR(&group->select);
+		forward_error(&group->select.base.result);
 	}
 	
 	if (group->timeout > 0) {
 		uv_timer_stop(&group->timer);
 	}
 	
-	// Poulate return values.
+	// Populate return values.
 	if (EXPECTED(EG(exception) == NULL) && group->select.entry != NULL) {
 		if (val != NULL) {
 			ZVAL_COPY(val, &group->select.base.result);
@@ -647,22 +670,25 @@ ZEND_METHOD(ChannelGroup, select)
 	// Cleanup pending operations.
 	for (i = 0; i < group->count; i++) {
 		entry = &group->entries[i];
+		channel = entry->it->channel;
 	
 		zval_ptr_dtor(&entry->base.result);
 		
-		ASYNC_Q_DETACH(&entry->it->channel->receivers, (async_op *) entry);
+		ASYNC_Q_DETACH(&channel->receivers, (async_op *) entry);
 		
-		// Perform inline compaction of the group if the channel was closed during select.
-		if (entry->it->channel->flags & ASYNC_CHANNEL_FLAG_CLOSED) {
-			ASYNC_DELREF(&entry->it->std);
-			zval_ptr_dtor(&entry->key);
-		
-			for (j = i + 1; j < group->count; j++) {
-				group->entries[j - 1] = group->entries[j];
-			}
+		if (channel->flags & ASYNC_CHANNEL_FLAG_CLOSED) {
+			// Do not remove channels that were closed with an error unless the error is being forwarded.
+			if (Z_TYPE_P(&channel->error) == IS_UNDEF || entry == group->select.entry) {
+				ASYNC_DELREF(&entry->it->std);
+				zval_ptr_dtor(&entry->key);
 			
-			group->count--;
-			i--;
+				for (j = i + 1; j < group->count; j++) {
+					group->entries[j - 1] = group->entries[j];
+				}
+				
+				group->count--;
+				i--;
+			}
 		}
 	}
 	
