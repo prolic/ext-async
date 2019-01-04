@@ -630,6 +630,9 @@ struct _async_task {
 	
 	/* Queued operations waiting for task completion. */
 	async_op_queue operations;
+	
+	/* Current await operation. */
+	async_op op;
 };
 
 #define ASYNC_TASK_SCHEDULER_FLAG_RUNNING 1
@@ -651,6 +654,9 @@ struct _async_task_scheduler {
 	
 	/* Pending operations that have not completed yet. */
 	async_op_queue operations;
+	
+	/* Root level awaited operation. */
+	async_op op;
 	
 	/** Queue of shutdown callbacks that need to be executed when the scheduler is disposed. */
 	async_cancel_queue shutdown;
