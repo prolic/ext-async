@@ -693,7 +693,6 @@ static const zend_function_entry channel_group_functions[] = {
 static void fetch_next_entry(async_channel_iterator *it)
 {
 	async_channel *channel;
-	async_op *op;
 	
 	ASYNC_CHECK_ERROR(it->flags & ASYNC_CHANNEL_ITERATOR_FLAG_FETCHING, "Cannot advance iterator while already awaiting next channel value");
 	
@@ -708,18 +707,20 @@ static void fetch_next_entry(async_channel_iterator *it)
 	// Queue up receiver and mark the iterator as fetching next value.
 	it->flags |= ASYNC_CHANNEL_ITERATOR_FLAG_FETCHING;
 	
-	ASYNC_ALLOC_OP(op);
-	ASYNC_ENQUEUE_OP(&channel->receivers, op);
+	it->op.status = ASYNC_STATUS_PENDING;
+	it->op.flags = 0;
 	
-	if (async_await_op(op) == FAILURE) {
-		forward_error(&op->result);
+	ASYNC_ENQUEUE_OP(&channel->receivers, &it->op);
+	
+	if (async_await_op(&it->op) == FAILURE) {
+		forward_error(&it->op.result);
 	} else if (!(channel->flags & ASYNC_CHANNEL_FLAG_CLOSED)) {
 		it->pos++;
 		
-		ZVAL_COPY(&it->entry, &op->result);
+		ZVAL_COPY(&it->entry, &it->op.result);
 	}
 	
-	ASYNC_FREE_OP(op);
+	zval_ptr_dtor(&it->op.result);
 	
 	it->flags &= ~ASYNC_CHANNEL_ITERATOR_FLAG_FETCHING;
 }

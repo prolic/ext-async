@@ -476,6 +476,9 @@ struct _async_channel_iterator {
 	
 	/* Current entry. */
 	zval entry;
+	
+	/* Reused receive operation. */
+	async_op op;
 };
 
 struct _async_context {
