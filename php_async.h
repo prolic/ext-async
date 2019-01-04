@@ -410,32 +410,52 @@ struct _async_channel_buffer {
 };
 
 typedef struct {
+	/* Base async op data. */
 	async_op base;
-	uint32_t pending;
-	zval key;
-} async_channel_select_op;
-
-typedef struct {
-	async_op base;
+	
+	/* Wrapped channel iterator. */
 	async_channel_iterator *it;
+	
+	/* Key being used to register the iterator with the channel group. */
 	zval key;
 } async_channel_select_entry;
+
+typedef struct {
+	/* base async op data. */
+	async_op base;
+	
+	/* Number of pending select operations, needed to stop select if all channels are closed. */
+	uint32_t pending;
+	
+	/* refers to the registration of the iterator that completed the select. */
+	async_channel_select_entry *entry;
+} async_channel_select_op;
 
 #define ASYNC_CHANNEL_GROUP_FLAG_SHUFFLE 1
 
 struct _async_channel_group {
+	/* PHP object handle. */
 	zend_object std;
 	
+	/* griup flags. */
 	uint8_t flags;
 	
+	/* Reference to the task scheudler. */
 	async_task_scheduler *scheduler;
 	
+	/* Number of (supposedly) unclosed channel iterators. */
 	uint32_t count;
+	
+	/* Array of registered channel iterators (closed channels will be removed without leaving gaps). */
 	async_channel_select_entry *entries;
+	
+	/* Basic select operation being used to suspend the calling task. */
 	async_channel_select_op select;
 	
+	/* Timeout paramter, -1 when a blocking call is requested. */
 	zend_long timeout;
 	
+	/* Timer being used to stop select, only initialized if timeout > 0. */
 	uv_timer_t timer;
 };
 

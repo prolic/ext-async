@@ -518,7 +518,7 @@ static void continue_select(async_op *op)
 		return;
 	}
 	
-	ZVAL_COPY(&group->select.key, &entry->key);
+	group->select.entry = entry;
 	
 	ASYNC_RESOLVE_OP(&group->select, &op->result);
 }
@@ -582,11 +582,7 @@ ZEND_METHOD(ChannelGroup, select)
 			
 			zval_ptr_dtor(&tmp);
 			
-			if (USED_RET()) {
-				ZVAL_COPY(return_value, &entry->key);
-			}
-			
-			return;
+			RETURN_ZVAL(&entry->key, 1, 0);
 		}
 		
 		// Perform inline compaction of the group.
@@ -612,7 +608,7 @@ ZEND_METHOD(ChannelGroup, select)
 	group->select.base.flags = 0;
 	
 	group->select.pending = group->count;
-	ZVAL_UNDEF(&group->select.key);
+	group->select.entry = NULL;
 	
 	for (i = 0; i < group->count; i++) {
 		entry = &group->entries[i];
@@ -637,16 +633,14 @@ ZEND_METHOD(ChannelGroup, select)
 		uv_timer_stop(&group->timer);
 	}
 	
-	// Populate result element.
-	if (EXPECTED(EG(exception) == NULL)) {
-		if (Z_TYPE_P(&group->select.key) != IS_UNDEF) {
-			if (val != NULL) {
-				ZVAL_COPY(val, &group->select.base.result);
-			}
-			
-			if (USED_RET()) {
-				ZVAL_COPY(return_value, &group->select.key);
-			}
+	// Poulate return values.
+	if (EXPECTED(EG(exception) == NULL) && group->select.entry != NULL) {
+		if (val != NULL) {
+			ZVAL_COPY(val, &group->select.base.result);
+		}
+		
+		if (USED_RET()) {
+			ZVAL_COPY(return_value, &group->select.entry->key);
 		}
 	}
 	
@@ -672,7 +666,6 @@ ZEND_METHOD(ChannelGroup, select)
 		}
 	}
 	
-	zval_ptr_dtor(&group->select.key);
 	zval_ptr_dtor(&group->select.base.result);
 }
 

@@ -39,10 +39,8 @@ do {
             printf("%s >> %s\n", $k, $v);
             break;
         default:
-            if ($block) {
-                break 2;
+            if (!$block) {
+                echo "Await next poll...\n";
             }
-
-            echo "Await next poll...\n";
     }
 } while ($group->count());
