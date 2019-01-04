@@ -163,8 +163,23 @@ final class Channel implements \IteratorAggregate
     public function close(?\Throwable $e = null): void { }
     
     public function send($message): void { }
+}
+```
+
+### ChannelGroup
+
+Working with multiple channels at once can be done by using a `ChannelGroup`. The group provides the very useful `select()` call that allows to read from multiple channels concurrently, it will return once a message has been received from any channel that is part of the group. You can use the `$timeout` parameter to specify a maximum wait time (in milliseconds). If no message has been received `select()` will return `NULL`. Whenever a message has been received `select()` will return the index of the channel in the wrapped `$channel` array. You have to pass a variable by reference to `select()` if you want to receive the message payload (this is not necessary if you just want to know the origin of the message but you do not care about the actual payload).
+
+The constructor accepts a `$channels` array that must contain eighter `Channel` objects or objects that implement `IteratorAggregate` and return a `ChannelIterator` object when `getIterator()` is called. You can call `count()` to check how many of the wrapped channels are still open and therefore considered to be readable. Keep in mind that you need to call `select()` before checking the count because channels can only be checked for closed state during `select()` (conside using a `do / while` loop and check `count()` as the loop condition).
+
+```php
+namespace Concurrent;
+
+final class Channelgroup implements \Countable
+{
+    public function __construct(array $channels, ?int $timeout = null, bool $shuffle = false) { }
     
-    public static function select(& $value, array $channels, bool $block = true) { }
+    public function select(& $value = null) { }
 }
 ```
 

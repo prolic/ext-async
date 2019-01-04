@@ -20,33 +20,29 @@ $producer = function (int $delay, Channel $channel) {
 $channel1 = new Channel();
 $channel2 = new Channel();
 
-$channels = [
-    'A' => $channel1,
-    'B' => $channel2->getIterator()
-];
-
 Task::async($producer, 80, $channel1);
 Task::async($producer, 110, $channel2);
 
-$timer = new Timer(200);
 $block = ((int) ($_SERVER['argv'][1] ?? '0')) ? true : false;
+
+$group = new ChannelGroup([
+    'A' => $channel1,
+    'B' => $channel2->getIterator()
+], $block ? null : 25);
 
 $v = null;
 
-for ($i = 0; $i < 20; $i++) {
-    switch (Channel::select($v, $channels, $block)) {
+do {
+    switch ($k = $group->select($v)) {
         case 'A':
-            var_dump('A >> ' . $v);
-            break;
         case 'B':
-            var_dump('B >> ' . $v);
+            printf("%s >> %s\n", $k, $v);
             break;
         default:
             if ($block) {
                 break 2;
             }
-            
-            printf("Await next poll...\n");
-            $timer->awaitTimeout();
+
+            echo "Await next poll...\n";
     }
-}
+} while ($group->count());

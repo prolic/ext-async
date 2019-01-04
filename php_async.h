@@ -111,6 +111,7 @@ ASYNC_API extern char async_ssl_config_file[MAXPATHLEN];
 ASYNC_API extern zend_class_entry *async_awaitable_ce;
 ASYNC_API extern zend_class_entry *async_channel_ce;
 ASYNC_API extern zend_class_entry *async_channel_closed_exception_ce;
+ASYNC_API extern zend_class_entry *async_channel_group_ce;
 ASYNC_API extern zend_class_entry *async_channel_iterator_ce;
 ASYNC_API extern zend_class_entry *async_context_ce;
 ASYNC_API extern zend_class_entry *async_context_var_ce;
@@ -188,6 +189,7 @@ typedef struct _async_cancellation_handler          async_cancellation_handler;
 typedef struct _async_cancellation_token            async_cancellation_token;
 typedef struct _async_channel                       async_channel;
 typedef struct _async_channel_buffer                async_channel_buffer;
+typedef struct _async_channel_group                 async_channel_group;
 typedef struct _async_channel_iterator              async_channel_iterator;
 typedef struct _async_context                       async_context;
 typedef struct _async_context_var                   async_context_var;
@@ -290,6 +292,49 @@ struct _async_cancel_cb {
 	async_cancel_cb *next;
 };
 
+#define ASYNC_OP_FLAG_CANCELLED 1
+#define ASYNC_OP_FLAG_DEFER 2
+
+typedef enum {
+	ASYNC_STATUS_PENDING,
+	ASYNC_STATUS_RUNNING,
+	ASYNC_STATUS_RESOLVED,
+	ASYNC_STATUS_FAILED
+} async_status;
+
+struct _async_op {
+	/* One of the ASYNC_STATUS_ constants. */
+	async_status status;
+	
+	/* Callback being used to continue the suspended execution. */
+	void (* callback)(async_op *op);
+	
+	/* Callback being used to mark the operation as cancelled and continue the suspended execution. */
+	async_cancel_cb cancel;
+	
+	/* Opaque pointer that can be used to pass data to the continuation callback. */
+	void *arg;
+	
+	/* Result variable, will hold an error object if an operation fails or is cancelled. */
+	zval result;
+	
+	/* Combined ASYNC_OP flags. */
+	uint8_t flags;
+	
+	/* Refers to an operation queue if the operation is queued for execution. */
+	async_op_queue *q;
+	async_op *next;
+	async_op *prev;
+};
+
+typedef struct {
+	/* Async operation structure, must be first element to allow for casting to async_op. */
+	async_op base;
+	
+	/* Result status code provided by libuv. */
+	int code;
+} async_uv_op;
+
 struct _async_cancellation_handler {
 	/* PHP object handle. */
 	zend_object std;
@@ -362,6 +407,36 @@ struct _async_channel_buffer {
 	/* References to previous and next buffer value. */
 	async_channel_buffer *prev;
 	async_channel_buffer *next;
+};
+
+typedef struct {
+	async_op base;
+	uint32_t pending;
+	zval key;
+} async_channel_select_op;
+
+typedef struct {
+	async_op base;
+	async_channel_iterator *it;
+	zval key;
+} async_channel_select_entry;
+
+#define ASYNC_CHANNEL_GROUP_FLAG_SHUFFLE 1
+
+struct _async_channel_group {
+	zend_object std;
+	
+	uint8_t flags;
+	
+	async_task_scheduler *scheduler;
+	
+	uint32_t count;
+	async_channel_select_entry *entries;
+	async_channel_select_op select;
+	
+	zend_long timeout;
+	
+	uv_timer_t timer;
 };
 
 #define ASYNC_CHANNEL_ITERATOR_FLAG_FETCHING 1
@@ -487,49 +562,6 @@ struct _async_fiber {
 	zend_string *file;
 	size_t line;
 };
-
-#define ASYNC_OP_FLAG_CANCELLED 1
-#define ASYNC_OP_FLAG_DEFER 2
-
-typedef enum {
-	ASYNC_STATUS_PENDING,
-	ASYNC_STATUS_RUNNING,
-	ASYNC_STATUS_RESOLVED,
-	ASYNC_STATUS_FAILED
-} async_status;
-
-struct _async_op {
-	/* One of the ASYNC_STATUS_ constants. */
-	async_status status;
-	
-	/* Callback being used to continue the suspended execution. */
-	void (* callback)(async_op *op);
-	
-	/* Callback being used to mark the operation as cancelled and continue the suspended execution. */
-	async_cancel_cb cancel;
-	
-	/* Opaque pointer that can be used to pass data to the continuation callback. */
-	void *arg;
-	
-	/* Result variable, will hold an error object if an operation fails or is cancelled. */
-	zval result;
-	
-	/* Combined ASYNC_OP flags. */
-	uint8_t flags;
-	
-	/* Refers to an operation queue if the operation is queued for execution. */
-	async_op_queue *q;
-	async_op *next;
-	async_op *prev;
-};
-
-typedef struct {
-	/* Async operation structure, must be first element to allow for casting to async_op. */
-	async_op base;
-	
-	/* Result status code provided by libuv. */
-	int code;
-} async_uv_op;
 
 typedef struct {
 	/* Base pointer being used to allocate and free buffer memory. */
